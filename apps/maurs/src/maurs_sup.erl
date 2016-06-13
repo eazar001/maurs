@@ -13,14 +13,15 @@
 %% Supervisor callbacks
 -export([init/1]).
 
--define(SERVER, ?MODULE).
+-define(CLIENT, client).
+-define(SERVER, cower).
 
 %%====================================================================
 %% API functions
 %%====================================================================
 
 start_link() ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %%====================================================================
 %% Supervisor callbacks
@@ -28,8 +29,25 @@ start_link() ->
 
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 init([]) ->
-    {ok, { {one_for_all, 0, 1}, []} }.
-
-%%====================================================================
-%% Internal functions
-%%====================================================================
+    SupFlags = #{
+        strategy => rest_for_one,
+        intensity => 1,
+        period => 5
+    },
+    ChildSpecs = [
+        #{ id => ?CLIENT,
+           start => {?CLIENT, start_link, []},
+           restart => transient,
+           shutdown => brutal_kill,
+           type => worker,
+           modules => [?CLIENT]
+         },
+        #{ id => ?SERVER,
+           start => {?SERVER, start_link, []},
+           restart => transient,
+           shutdown => brutal_kill,
+           type => worker,
+           modules => [?SERVER]
+         }
+    ],
+    {ok, { SupFlags, ChildSpecs} }.

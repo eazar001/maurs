@@ -3,7 +3,7 @@
 
 %% API
 -export(
-    [ start/0
+    [ start_link/0
      ,search/1
      ,notify_server/1
      ,sync_notify_server/1 ]
@@ -30,9 +30,8 @@
 %%===================================================================================================
 
 
-start() ->
-    {ok, Pid} = gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []),
-    {ok, Pid}.
+start_link() ->
+    gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 search(Terms) ->
     Results = gen_fsm:sync_send_event(?MODULE, {search, Terms}),

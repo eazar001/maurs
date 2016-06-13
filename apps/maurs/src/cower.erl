@@ -3,7 +3,7 @@
 
 %% API
 -export(
-    [ start/0
+    [ start_link/0
      ,search/0
      ,notify_client/1
      ,sync_notify_client/1 ]).
@@ -29,9 +29,8 @@
 %%===================================================================================================
 
 
-start() ->
-    {ok, Pid} = gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []),
-    {ok, Pid}.
+start_link() ->
+    gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 search() ->
     case sync_notify_client(ready) of

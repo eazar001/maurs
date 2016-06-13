@@ -9,9 +9,10 @@
     getopt
    ]},
   {env,[]},
-  {modules, []},
+  {modules, [client,
+             cower]},
 
   {maintainers, []},
-  {licenses, []},
+  {licenses, ["MIT"]},
   {links, []}
  ]}.
