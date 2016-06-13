@@ -6,7 +6,8 @@
     [ start_link/0
      ,search/0
      ,notify_client/1
-     ,sync_notify_client/1 ]).
+     ,sync_notify_client/1 ]
+).
 
 
 %% Callback exports
@@ -22,6 +23,7 @@
 ).
 
 -define(CLIENT, client).
+-define(SERVER, ?MODULE).
 
 
 %%===================================================================================================
@@ -33,9 +35,9 @@ start_link() ->
     gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 search() ->
-    case sync_notify_client(ready) of
-        client_ready ->
-            gen_fsm:send_event(?MODULE, ready);
+    case sync_notify_client({?SERVER, search, ready}) of
+        {?CLIENT, search, ready} ->
+            gen_fsm:send_event(?SERVER, {?SERVER, search, ready});
         _ -> fail
     end.
 
@@ -54,14 +56,14 @@ sync_notify_client(Status) ->
 init(Args) ->
     {ok, idle, Args}.
 
-idle({ready, Terms}, []) ->
+idle({?CLIENT, ready, Terms}, []) ->
     {next_state, search, Terms}.
 
 %% We should perform the search and notify the client of the results here
-search(ready, Terms) ->
-    Cmd = io_lib:format("cower -s ~s~n", [Terms]),
+search({?SERVER, search, ready}, Terms) ->
+    Cmd = io_lib:format("cower -s ~s", [Terms]),
     Results = os:cmd(Cmd),
-    notify_client(Results),
+    notify_client({?SERVER, deliver, Results}),
     {next_state, idle, []}.
 
 
