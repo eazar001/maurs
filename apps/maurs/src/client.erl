@@ -4,9 +4,7 @@
 %% API
 -export(
     [ start_link/0
-     ,search/1
-     ,notify_server/1
-     ,sync_notify_server/1 ]
+     ,search/2 ]
 ).
 
 %% Callback exports
@@ -34,15 +32,10 @@
 start_link() ->
     gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-search(Terms) ->
-    Results = gen_fsm:sync_send_event(?MODULE, {?CLIENT, search, Terms}),
-    io:format("~ts", [Results]).
-
-sync_notify_server(Status) ->
-    gen_fsm:sync_send_event(?SERVER, Status).
-
-notify_server(Status) ->
-    gen_fsm:send_event(?SERVER, Status).
+search(Terms, Types) ->
+    Results = gen_fsm:sync_send_event(?CLIENT, {?CLIENT, {search, Types}, Terms}),
+    io:format("~ts", [Results]),
+    erlang:halt().
 
 
 %%===================================================================================================
@@ -53,13 +46,13 @@ notify_server(Status) ->
 init(Args) ->
     {ok, idle, Args}.
 
-idle({?CLIENT, search, Terms}, From, []) ->
-    notify_server({?CLIENT, ready, Terms}),
-    spawn_link(fun() -> ?SERVER:search() end),
+idle({?CLIENT, {search, Types}, Terms}, From, []) ->
+    notify_server({?CLIENT, {search, Types}, Terms}),
+    spawn_link(fun() -> ?SERVER:search(Types) end),
     {next_state, wait, From}.
 
-wait({?SERVER, search, ready}, _ServerID, ClientID) ->
-    {reply, {?CLIENT, search, ready}, send, ClientID}.
+wait({?SERVER, {search, Types}, ready}, _ServerID, ClientID) ->
+    {reply, {?CLIENT, {search, Types}, ready}, send, ClientID}.
 
 send({?SERVER, deliver, Results}, From) ->
     gen_fsm:reply(From, Results),
@@ -78,3 +71,15 @@ code_change(_OldVsn, _StateName, [], _Extra) ->
     {ok, idle, []}.
 
 terminate(_Reason, _StateName, _StateData) -> ok.
+
+
+%%===================================================================================================
+%% Internal Functions
+%%===================================================================================================
+
+
+sync_notify_server(Status) ->
+    gen_fsm:sync_send_event(?SERVER, Status).
+
+notify_server(Status) ->
+    gen_fsm:send_event(?SERVER, Status).
