@@ -4,7 +4,8 @@
 %% API
 -export(
     [ start_link/0
-     ,search/1 ]
+     ,search/1
+     ,get/1 ]
 ).
 
 
@@ -13,6 +14,7 @@
     [ init/1
      ,idle/2
      ,search/2
+     ,get/2
      ,handle_event/3
      ,handle_sync_event/4
      ,handle_info/3
@@ -38,6 +40,12 @@ search(Types) ->
             gen_fsm:send_event(?SERVER, {?SERVER, {search, Types}, ready})
     end.
 
+get(Type) ->
+    case sync_notify_client({?SERVER, {get, Type}, ready}) of
+        {?CLIENT, {get, Type}, ready} ->
+            gen_fsm:send_event(?SERVER, {?SERVER, {get, Type}, ready})
+    end.
+
 
 %%===================================================================================================
 %% Callback
@@ -48,7 +56,10 @@ init(Args) ->
     {ok, idle, Args}.
 
 idle({?CLIENT, {search, _Types}, Terms}, []) ->
-    {next_state, search, Terms}.
+    {next_state, search, Terms};
+
+idle({?CLIENT, {get, _Type}, Terms}, []) ->
+    {next_state, get, Terms}.
 
 %% We should perform the search and notify the client of the results here
 search({?SERVER, {search, Types}, ready}, Terms) ->
@@ -64,6 +75,21 @@ search({?SERVER, {search, Types}, ready}, Terms) ->
     end,
     receive
         Results -> notify_client({?SERVER, deliver, Results})
+    end,
+    {next_state, idle, []}.
+
+%% We should perform the retrieval of the packages and notification of final status to client here
+get({?SERVER, {get, aur}, ready}, Terms) ->
+    case decode_aur_get(os:cmd(io_lib:format("cower -d ~s", [Terms]))) of
+        error -> notify_client({?SERVER, get, fail});
+        ok -> notify_client({?SERVER, get, ok})
+    end,
+    {next_state, idle, []};
+
+get({?SERVER, {get, pacman}, ready}, Terms) ->
+    case decode_pacman_get(os:cmd(io_lib:format("pacman -S ~s", [Terms]))) of
+        error -> notify_client({?SERVER, get, fail});
+        ok -> notify_client({?SERVER, get, fail})
     end,
     {next_state, idle, []}.
 
@@ -113,3 +139,9 @@ do_search(Terms, [Type|Rest]) when Rest =/= [] ->
     end,
     spawn_link(fun() -> receiver ! {ok, Result()} end),
     do_search(Terms, Rest).
+
+decode_aur_get([101,114,114,111,114,58|_]) -> error;
+decode_aur_get(_) -> ok.
+
+decode_pacman_get([101,114,114,111,114,58|_]) -> error;
+decode_pacman_get(_) -> ok.

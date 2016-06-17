@@ -4,7 +4,8 @@
 %% API
 -export(
     [ start_link/0
-     ,search/2 ]
+     ,search/2
+     ,get/2 ]
 ).
 
 %% Callback exports
@@ -37,6 +38,10 @@ search(Terms, Types) ->
     io:format("~ts", [Results]),
     erlang:halt().
 
+get(Terms, Type) ->
+    gen_fsm:sync_send_event(?CLIENT, {?CLIENT, {get, Type}, Terms}),
+    gen_fsm:send_all_state_event(?CLIENT, stop).
+
 
 %%===================================================================================================
 %% Callback
@@ -49,13 +54,30 @@ init(Args) ->
 idle({?CLIENT, {search, Types}, Terms}, From, []) ->
     notify_server({?CLIENT, {search, Types}, Terms}),
     spawn_link(fun() -> ?SERVER:search(Types) end),
+    {next_state, wait, From};
+
+idle({?CLIENT, {get, Type}, Terms}, From, []) ->
+    notify_server({?CLIENT, {get, Type}, Terms}),
+    spawn_link(fun() -> ?SERVER:get(Type) end),
     {next_state, wait, From}.
 
 wait({?SERVER, {search, Types}, ready}, _ServerID, ClientID) ->
-    {reply, {?CLIENT, {search, Types}, ready}, send, ClientID}.
+    {reply, {?CLIENT, {search, Types}, ready}, send, ClientID};
+
+wait({?SERVER, {get, Type}, ready}, _ServerID, ClientID) ->
+    {reply, {?CLIENT, {get, Type}, ready}, send, ClientID}.
 
 send({?SERVER, deliver, Results}, From) ->
     gen_fsm:reply(From, Results),
+    {next_state, idle, []};
+
+send({?SERVER, get, ok}, From) ->
+    gen_fsm:reply(From, ok),
+    {next_state, idle, []};
+
+send({?SERVER, get, fail}, From) ->
+    % Download errors should be handled in this section
+    gen_fsm:reply(From, error),
     {next_state, idle, []}.
 
 handle_event(stop, _StateName, _StateData) ->
