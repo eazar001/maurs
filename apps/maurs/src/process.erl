@@ -53,7 +53,6 @@ get(Type) ->
 
 
 init(Args) ->
-    io:format("Reached marker~n"),
     {ok, idle, Args}.
 
 idle({?CLIENT, {search, _Types}, Terms}, []) ->
@@ -111,38 +110,35 @@ sync_notify_client(Status) ->
     gen_fsm:sync_send_event(?CLIENT, Status).
 
 receive_search_results(Count) when Count >= 0 ->
-    case whereis(receiver) of
-        undefined -> register(receiver, self());
-        _ ->
-            unregister(receiver),
-            register(receiver, self())
-    end,
-    {ok, receive_search_results_loop(Count)}.
+    register(receiver, self()),
+    Results = receive_search_results_loop(Count),
+    Sorted_Results = [Content || {_, Content} <- lists:sort(fun sort_by_type/2, Results)],
+    {ok, Sorted_Results}.
 
 receive_search_results_loop(0) ->
     receive
-        {ok, Result} -> [Result]
+        {Type, Result} -> [{Type, Result}]
     end;
 
 receive_search_results_loop(Count) when Count > 0 ->
     receive
-        {ok, Result} -> [Result|receive_search_results_loop(Count-1)]
+        {Type, Result} -> [{Type, Result}|receive_search_results_loop(Count-1)]
     end.
 
 do_search(Terms, [pacman_search]) ->
     Result = fun() -> os:cmd(io_lib:format("pacman -Ss ~s", [Terms])) end,
-    spawn_link(fun() -> receiver ! {ok, Result()} end);
+    spawn_link(fun() -> receiver ! {pacman_search, Result()} end);
 
 do_search(Terms, [aur_search]) ->
     Result = fun() -> os:cmd(io_lib:format("cower -s ~s", [Terms])) end,
-    spawn_link(fun() -> receiver ! {ok, Result()} end);
+    spawn_link(fun() -> receiver ! {aur_search, Result()} end);
 
 do_search(Terms, [Type|Rest]) when Rest =/= [] ->
     case Type of
         pacman_search -> Result = fun() -> os:cmd(io_lib:format("pacman -Ss ~s", [Terms])) end;
         aur_search -> Result = fun() -> os:cmd(io_lib:format("cower -s ~s", [Terms])) end
     end,
-    spawn_link(fun() -> receiver ! {ok, Result()} end),
+    spawn_link(fun() -> receiver ! {Type, Result()} end),
     do_search(Terms, Rest).
 
 collect_results({Phase, Rtag, Stag}, Terms, Types) ->
@@ -165,6 +161,9 @@ collect_results({Phase, Rtag, Stag}, Terms, Types) ->
     after 5000 ->
         exit(timeout)
     end.
+
+sort_by_type({pacman_search, _}, {aur_search, _}) -> true;
+sort_by_type({aur_search, _}, {pacman_search, _}) -> false.
 
 decode_aur_get([101,114,114,111,114,58|_]) -> error;
 decode_aur_get(_) -> ok.
