@@ -95,11 +95,7 @@ code_change(_OldVsn, _StateName, [], _Extra) ->
 terminate(halt, _StateName, _StateData) ->
     erlang:halt();
 
-terminate(_Reason, _StateName, _StateData) ->
-    case whereis(receiver) of
-        undefined -> ok;
-        _ -> unregister(receiver)
-    end.
+terminate(_Reason, _StateName, _StateData) -> ok.
 
 
 %%===================================================================================================

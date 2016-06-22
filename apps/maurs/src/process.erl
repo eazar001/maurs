@@ -53,6 +53,7 @@ get(Type) ->
 
 
 init(Args) ->
+    io:format("Reached marker~n"),
     {ok, idle, Args}.
 
 idle({?CLIENT, {search, _Types}, Terms}, []) ->
@@ -96,11 +97,7 @@ code_change(_OldVsn, _StateName, [], _Extra) ->
 terminate(halt, _StateName, _StateData) ->
     erlang:halt();
 
-terminate(_Reason, _StateName, _StateData) ->
-    case whereis(receiver) of
-        undefined -> ok;
-        _ -> unregister(receiver)
-    end.
+terminate(_Reason, _StateName, _StateData) -> ok.
 
 
 %%===================================================================================================
@@ -152,33 +149,20 @@ collect_results({Phase, Rtag, Stag}, Terms, Types) ->
     case Phase of
         start ->
             Len = length(Types) - 1,
-            {ReceiverPid, Rmref} = spawn_monitor(fun() -> ?PROCESS ! receive_search_results(Len) end),
-            {SearcherPid, Smref} = spawn_monitor(fun() -> do_search(Terms, Types) end);
+            ReceiverPid = spawn_link(fun() -> ?PROCESS ! receive_search_results(Len) end),
+            SearcherPid = spawn_link(fun() -> do_search(Terms, Types) end);
 
         continue ->
-            {{ReceiverPid, Rmref}, {SearcherPid, Smref}} = {Rtag, Stag}
+            {ReceiverPid, SearcherPid} = {Rtag, Stag}
     end,
     receive
 
         {ok, Results} ->
             notify_client({?PROCESS, deliver, Results}),
-            demonitor(Rmref, [flush]),
-            demonitor(Smref, [flush]),
-            {Rtag0, Stag0} = {{ReceiverPid, Rmref}, {SearcherPid, Smref}},
-            collect_results({continue, Rtag0, Stag0}, Terms, Types);
-
-        {'DOWN', Rmref, _, ReceiverPid, Reason} ->
-            exit(Reason);
-
-        {'DOWN', Smref, _, SearcherPid, normal} ->
-            {Rtag0, Stag0} = {{ReceiverPid, Rmref}, {SearcherPid, Smref}},
-            collect_results({continue, Rtag0, Stag0}, Terms, Types);
-
-        {'DOWN', Smref, _, SearcherPid, Reason} ->
-            exit(Reason)
+            {Rtag0, Stag0} = {ReceiverPid, SearcherPid},
+            collect_results({continue, Rtag0, Stag0}, Terms, Types)
 
     after 5000 ->
-        lists:foreach(fun(Mon) -> demonitor(Mon, [flush]) end, [Rmref, Smref]),
         exit(timeout)
     end.
 
