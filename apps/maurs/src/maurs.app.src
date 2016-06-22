@@ -10,7 +10,7 @@
    ]},
   {env,[]},
   {modules, [client,
-             cower]},
+             process]},
 
   {maintainers, []},
   {licenses, ["MIT"]},

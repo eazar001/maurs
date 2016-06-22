@@ -14,7 +14,7 @@
 -export([init/1]).
 
 -define(CLIENT, client).
--define(SERVER, cower).
+-define(PROCESS, process).
 
 %%====================================================================
 %% API functions
@@ -42,12 +42,12 @@ init([]) ->
            type => worker,
            modules => [?CLIENT]
          },
-        #{ id => ?SERVER,
-           start => {?SERVER, start_link, []},
+        #{ id => ?PROCESS,
+           start => {?PROCESS, start_link, []},
            restart => transient,
            shutdown => brutal_kill,
            type => worker,
-           modules => [?SERVER]
+           modules => [?PROCESS]
          }
     ],
-    {ok, { SupFlags, ChildSpecs} }.
+    {ok, {SupFlags, ChildSpecs} }.
