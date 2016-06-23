@@ -5,7 +5,8 @@
 -export(
     [ start_link/0
      ,search/1
-     ,get/1 ]
+     ,get/1
+     ,install/1 ]
 ).
 
 
@@ -35,16 +36,16 @@ start_link() ->
     gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 search(Types) ->
-    case sync_notify_client({?PROCESS, {search, Types}, ready}) of
-        {?CLIENT, {search, Types}, ready} ->
-            gen_fsm:send_event(?PROCESS, {?PROCESS, {search, Types}, ready})
-    end.
+    {?CLIENT, {search, Types}, ready} = sync_notify_client({?PROCESS, {search, Types}, ready}),
+    gen_fsm:send_event(?PROCESS, {?PROCESS, {search, Types}, ready}).
 
 get(Type) ->
-    case sync_notify_client({?PROCESS, {get, Type}, ready}) of
-        {?CLIENT, {get, Type}, ready} ->
-            gen_fsm:send_event(?PROCESS, {?PROCESS, {get, Type}, ready})
-    end.
+    {?CLIENT, {get, Type}, ready} = sync_notify_client({?PROCESS, {get, Type}, ready}),
+    gen_fsm:send_event(?PROCESS, {?PROCESS, {get, Type}, ready}).
+
+install(Type) ->
+    {?CLIENT, {get,Type}, ready} = sync_notify_client({?PROCESS, {install, Type}, ready}),
+    gen_fsm:send_event(?PROCESS, {?PROCESS, {install, Type}, ready}).
 
 
 %%===================================================================================================
@@ -63,7 +64,7 @@ idle({?CLIENT, {get, _Type}, Terms}, []) ->
 
 %% We should perform the search and notify the client of the results here
 search({?PROCESS, {search, Types}, ready}, Terms) ->
-    collect_results({start, [], []}, Terms, Types),
+    collect_results_and_notify_client({start, [], []}, Terms, Types),
     {next_state, idle, []}.
 
 %% We should perform the retrieval of the packages and notification of final status to client here
@@ -77,8 +78,13 @@ get({?PROCESS, {get, aur}, ready}, Terms) ->
 get({?PROCESS, {get, pacman}, ready}, Terms) ->
     case decode_pacman_get(os:cmd(io_lib:format("pacman -S ~s", [Terms]))) of
         error -> notify_client({?PROCESS, get, fail});
-        ok -> notify_client({?PROCESS, get, fail})
+        ok -> notify_client({?PROCESS, get, ok})
     end,
+    {next_state, idle, []}.
+
+install({?PROCESS, {install, aur}, ready}, Package) ->
+    do_install(Package),
+    notify_client({?PROCESS, install, ok}),
     {next_state, idle, []}.
 
 handle_event(stop, _StateName, _StateData) ->
@@ -141,7 +147,14 @@ do_search(Terms, [Type|Rest]) when Rest =/= [] ->
     spawn_link(fun() -> receiver ! {Type, Result()} end),
     do_search(Terms, Rest).
 
-collect_results({Phase, Rtag, Stag}, Terms, Types) ->
+install_packages(Packages) ->
+    lists:foreach(fun do_install/1, Packages).
+
+do_install(Package) ->
+    Cmd = io_lib:format("makepkg -si ~s", [Package]),
+    os:cmd(Cmd).
+
+collect_results_and_notify_client({Phase, Rtag, Stag}, Terms, Types) ->
     case Phase of
         start ->
             Len = length(Types) - 1,
@@ -156,14 +169,21 @@ collect_results({Phase, Rtag, Stag}, Terms, Types) ->
         {ok, Results} ->
             notify_client({?PROCESS, deliver, Results}),
             {Rtag0, Stag0} = {ReceiverPid, SearcherPid},
-            collect_results({continue, Rtag0, Stag0}, Terms, Types)
+            collect_results_and_notify_client({continue, Rtag0, Stag0}, Terms, Types)
 
     after 5000 ->
         exit(timeout)
     end.
 
+valid_aur_packages(Packages) ->
+    Cmd = io_lib:format("cower -i ~s", [Packages]),
+    lists:all(fun(P) -> decode_aur_info(os:cmd(Cmd)) == ok end, [Packages]).
+
 sort_by_type({pacman_search, _}, {aur_search, _}) -> true;
 sort_by_type({aur_search, _}, {pacman_search, _}) -> false.
+
+decode_aur_info([101,114,114,111,114,58|_]) -> error;
+decode_aur_info(_) -> ok.
 
 decode_aur_get([101,114,114,111,114,58|_]) -> error;
 decode_aur_get(_) -> ok.

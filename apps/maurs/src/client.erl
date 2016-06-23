@@ -5,7 +5,8 @@
 -export(
     [ start_link/0
      ,search/2
-     ,get/2 ]
+     ,get/2
+     ,install/2 ]
 ).
 
 %% Callback exports
@@ -42,6 +43,10 @@ get(Terms, Type) ->
     gen_fsm:sync_send_event(?CLIENT, {?CLIENT, {get, Type}, Terms}),
     gen_fsm:send_all_state_event(?CLIENT, stop).
 
+install(Terms, Type) ->
+    gen_fsm:sync_send_event(?CLIENT, {?CLIENT, {install, Type}, Terms}),
+    gen_fsm:send_all_state_event(?CLIENT, stop).
+
 
 %%===================================================================================================
 %% Callback
@@ -59,12 +64,20 @@ idle({?CLIENT, {search, Types}, Terms}, From, []) ->
 idle({?CLIENT, {get, Type}, Terms}, From, []) ->
     notify_server({?CLIENT, {get, Type}, Terms}),
     spawn_link(fun() -> ?PROCESS:get(Type) end),
+    {next_state, wait, From};
+
+idle({?CLIENT, {install, Type}, Terms}, From, []) ->
+    notify_server({?CLIENT, {install, Type}, Terms}),
+    spawn_link(fun() -> ?PROCESS:install(Type) end),
     {next_state, wait, From}.
 
 wait({?PROCESS, {search, Types}, ready}, _ServerID, ClientID) ->
     {reply, {?CLIENT, {search, Types}, ready}, send, ClientID};
 
 wait({?PROCESS, {get, Type}, ready}, _ServerID, ClientID) ->
+    {reply, {?CLIENT, {get, Type}, ready}, send, ClientID};
+
+wait({?PROCESS, {install, Type}, ready}, send, ClientID) ->
     {reply, {?CLIENT, {get, Type}, ready}, send, ClientID}.
 
 send({?PROCESS, deliver, Results}, From) ->
@@ -77,6 +90,14 @@ send({?PROCESS, get, ok}, From) ->
 
 send({?PROCESS, get, fail}, From) ->
     % Download errors should be handled in this section
+    gen_fsm:reply(From, error),
+    {next_state, idle, []};
+
+send({?PROCESS, install, ok}, From) ->
+    gen_fsm:reply(From, ok),
+    {next_state, idle, []};
+
+send({?PROCESS, install, fail}, From) ->
     gen_fsm:reply(From, error),
     {next_state, idle, []}.
 
