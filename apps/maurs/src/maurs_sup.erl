@@ -50,4 +50,4 @@ init([]) ->
            modules => [?PROCESS]
          }
     ],
-    {ok, {SupFlags, ChildSpecs} }.
+    {ok, {SupFlags, ChildSpecs}}.

@@ -2,7 +2,7 @@
  [{description, "An AUR package helper written in Erlang."},
   {vsn, "0.1.0"},
   {registered, []},
-  {mod, { maurs, []}},
+  {mod, {maurs, []}},
   {applications,
    [kernel,
     stdlib,

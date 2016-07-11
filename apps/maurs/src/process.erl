@@ -1,27 +1,7 @@
 -module(process).
--behavior(gen_fsm).
+-behavior(gen_statem).
 
-%% API
--export(
-    [ start_link/0
-     ,search/1
-     ,get/1
-     ,install/1 ]
-).
-
-
-%% Callback exports
--export(
-    [ init/1
-     ,idle/2
-     ,search/2
-     ,get/2
-     ,handle_event/3
-     ,handle_sync_event/4
-     ,handle_info/3
-     ,code_change/4
-     ,terminate/3 ]
-).
+-compile(export_all).
 
 -define(CLIENT, client).
 -define(PROCESS, ?MODULE).
@@ -33,19 +13,19 @@
 
 
 start_link() ->
-    gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 search(Types) ->
     {?CLIENT, {search, Types}, ready} = sync_notify_client({?PROCESS, {search, Types}, ready}),
-    gen_fsm:send_event(?PROCESS, {?PROCESS, {search, Types}, ready}).
+    gen_statem:cast(?PROCESS, {?PROCESS, {search, Types}, ready}).
 
 get(Type) ->
     {?CLIENT, {get, Type}, ready} = sync_notify_client({?PROCESS, {get, Type}, ready}),
-    gen_fsm:send_event(?PROCESS, {?PROCESS, {get, Type}, ready}).
+    gen_statem:cast(?PROCESS, {?PROCESS, {get, Type}, ready}).
 
 install(Type) ->
     {?CLIENT, {get,Type}, ready} = sync_notify_client({?PROCESS, {install, Type}, ready}),
-    gen_fsm:send_event(?PROCESS, {?PROCESS, {install, Type}, ready}).
+    gen_statem:cast(?PROCESS, {?PROCESS, {install, Type}, ready}).
 
 
 %%===================================================================================================
@@ -54,35 +34,35 @@ install(Type) ->
 
 
 init(Args) ->
-    {ok, idle, Args}.
+    {state_functions, idle, Args}.
 
-idle({?CLIENT, {search, _Types}, Terms}, []) ->
+idle(cast, {?CLIENT, {search, _Types}, Terms}, []) ->
     {next_state, search, Terms};
 
-idle({?CLIENT, {get, _Type}, Terms}, []) ->
+idle(cast, {?CLIENT, {get, _Type}, Terms}, []) ->
     {next_state, get, Terms}.
 
 %% We should perform the search and notify the client of the results here
-search({?PROCESS, {search, Types}, ready}, Terms) ->
+search(cast, {?PROCESS, {search, Types}, ready}, Terms) ->
     collect_results_and_notify_client({start, [], []}, Terms, Types),
     {next_state, idle, []}.
 
 %% We should perform the retrieval of the packages and notification of final status to client here
-get({?PROCESS, {get, aur}, ready}, Terms) ->
+get(cast, {?PROCESS, {get, aur}, ready}, Terms) ->
     case decode_aur_get(os:cmd(io_lib:format("cower -d ~s", [Terms]))) of
         error -> notify_client({?PROCESS, get, fail});
         ok -> notify_client({?PROCESS, get, ok})
     end,
     {next_state, idle, []};
 
-get({?PROCESS, {get, pacman}, ready}, Terms) ->
+get(cast, {?PROCESS, {get, pacman}, ready}, Terms) ->
     case decode_pacman_get(os:cmd(io_lib:format("pacman -S ~s", [Terms]))) of
         error -> notify_client({?PROCESS, get, fail});
         ok -> notify_client({?PROCESS, get, ok})
     end,
     {next_state, idle, []}.
 
-install({?PROCESS, {install, aur}, ready}, Package) ->
+install(cast, {?PROCESS, {install, aur}, ready}, Package) ->
     do_install(Package),
     notify_client({?PROCESS, install, ok}),
     {next_state, idle, []}.
@@ -110,10 +90,10 @@ terminate(_Reason, _StateName, _StateData) -> ok.
 %%===================================================================================================
 
 notify_client(Status) ->
-    gen_fsm:send_event(?CLIENT, Status).
+    gen_statem:cast(?CLIENT, Status).
 
 sync_notify_client(Status) ->
-    gen_fsm:sync_send_event(?CLIENT, Status).
+    gen_statem:call(?CLIENT, Status).
 
 receive_search_results(Count) when Count >= 0 ->
     register(receiver, self()),
