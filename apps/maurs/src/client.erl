@@ -21,12 +21,10 @@ search(Terms, Types) ->
     erlang:halt().
 
 get(Terms, Type) ->
-    gen_statem:call(?CLIENT, {?CLIENT, {get, Type}, Terms}),
-    gen_statem:cast(?CLIENT, stop).
+    gen_statem:call(?CLIENT, {?CLIENT, {get, Type}, Terms}).
 
 install(Terms, Type) ->
-    gen_fsm:sync_send_event(?CLIENT, {?CLIENT, {install, Type}, Terms}),
-    gen_fsm:cast(?CLIENT, stop).
+    gen_statem:call(?CLIENT, {?CLIENT, {install, Type}, Terms}).
 
 
 %%===================================================================================================
@@ -39,17 +37,14 @@ init(Args) ->
 
 idle({call, From}, {?CLIENT, {search, Types}, Terms}, []) ->
     notify_server({?CLIENT, {search, Types}, Terms}),
-    spawn_link(fun() -> ?PROCESS:search(Types) end),
     {next_state, wait, From};
 
 idle({call, From}, {?CLIENT, {get, Type}, Terms}, []) ->
     notify_server({?CLIENT, {get, Type}, Terms}),
-    spawn_link(fun() -> ?PROCESS:get(Type) end),
     {next_state, wait, From};
 
 idle({call, From}, {?CLIENT, {install, Type}, Terms}, []) ->
     notify_server({?CLIENT, {install, Type}, Terms}),
-    spawn_link(fun() -> ?PROCESS:install(Type) end),
     {next_state, wait, From}.
 
 wait({call, ServerID}, {?PROCESS, {search, Types}, ready}, ClientID) ->
@@ -67,7 +62,7 @@ send(cast, {?PROCESS, deliver, Results}, From) ->
 
 send(cast, {?PROCESS, get, ok}, From) ->
     gen_statem:reply(From, ok),
-    {next_state, idle, []};
+    {stop, normal};
 
 send(cast, {?PROCESS, get, fail}, From) ->
     % Download errors should be handled in this section
@@ -76,7 +71,7 @@ send(cast, {?PROCESS, get, fail}, From) ->
 
 send(cast, {?PROCESS, install, ok}, From) ->
     gen_statem:reply(From, ok),
-    {next_state, idle, []};
+    {stop, normal};
 
 send(cast, {?PROCESS, install, fail}, From) ->
     gen_statem:reply(From, error),

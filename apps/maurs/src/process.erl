@@ -15,16 +15,10 @@
 start_link() ->
     gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-search(Types) ->
-    {?CLIENT, {search, Types}, ready} = sync_notify_client({?PROCESS, {search, Types}, ready}),
-    gen_statem:cast(?PROCESS, {?PROCESS, {search, Types}, ready}).
-
 get(Type) ->
-    {?CLIENT, {get, Type}, ready} = sync_notify_client({?PROCESS, {get, Type}, ready}),
     gen_statem:cast(?PROCESS, {?PROCESS, {get, Type}, ready}).
 
 install(Type) ->
-    {?CLIENT, {get,Type}, ready} = sync_notify_client({?PROCESS, {install, Type}, ready}),
     gen_statem:cast(?PROCESS, {?PROCESS, {install, Type}, ready}).
 
 
@@ -36,33 +30,39 @@ install(Type) ->
 init(Args) ->
     {state_functions, idle, Args}.
 
-idle(cast, {?CLIENT, {search, _Types}, Terms}, []) ->
-    {next_state, search, Terms};
+idle(cast, {?CLIENT, {search, Types}, Terms}, []) ->
+    {?CLIENT, {search, Types}, ready} = sync_notify_client({?PROCESS, {search, Types}, ready}),
+    {next_state, search, Terms, {next_event, internal, {search, Types}}};
 
-idle(cast, {?CLIENT, {get, _Type}, Terms}, []) ->
-    {next_state, get, Terms}.
+idle(cast, {?CLIENT, {get, Type}, Terms}, []) ->
+    {?CLIENT, {get, Type}, ready} = sync_notify_client({?PROCESS, {get, Type}, ready}),
+    {next_state, get, Terms, {next_event, internal, {get, Type}}};
+
+idle(cast, {?CLIENT, {install, Type}, Terms}, []) ->
+    {?CLIENT, {get,Type}, ready} = sync_notify_client({?PROCESS, {install, Type}, ready}),
+    {next_state, install, Terms, {next_event, internal, {install, Type}}}.
 
 %% We should perform the search and notify the client of the results here
-search(cast, {?PROCESS, {search, Types}, ready}, Terms) ->
+search(internal, {search, Types}, Terms) ->
     collect_results_and_notify_client({start, [], []}, Terms, Types),
     {next_state, idle, []}.
 
 %% We should perform the retrieval of the packages and notification of final status to client here
-get(cast, {?PROCESS, {get, aur}, ready}, Terms) ->
+get(internal, {get, aur}, Terms) ->
     case decode_aur_get(os:cmd(io_lib:format("cower -d ~s", [Terms]))) of
         error -> notify_client({?PROCESS, get, fail});
         ok -> notify_client({?PROCESS, get, ok})
     end,
     {next_state, idle, []};
 
-get(cast, {?PROCESS, {get, pacman}, ready}, Terms) ->
+get(internal, {get, pacman}, Terms) ->
     case decode_pacman_get(os:cmd(io_lib:format("pacman -S ~s", [Terms]))) of
         error -> notify_client({?PROCESS, get, fail});
         ok -> notify_client({?PROCESS, get, ok})
     end,
     {next_state, idle, []}.
 
-install(cast, {?PROCESS, {install, aur}, ready}, Package) ->
+install(internal, {install, aur}, Package) ->
     do_install(Package),
     notify_client({?PROCESS, install, ok}),
     {next_state, idle, []}.
