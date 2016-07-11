@@ -1,26 +1,7 @@
 -module(client).
--behavior(gen_fsm).
+-behavior(gen_statem).
 
-%% API
--export(
-    [ start_link/0
-     ,search/2
-     ,get/2
-     ,install/2 ]
-).
-
-%% Callback exports
--export(
-    [ init/1
-     ,idle/3
-     ,wait/3
-     ,send/2
-     ,handle_event/3
-     ,handle_sync_event/4
-     ,handle_info/3
-     ,code_change/4
-     ,terminate/3 ]
-).
+-compile(export_all).
 
 -define(PROCESS, process).
 -define(CLIENT, ?MODULE).
@@ -32,20 +13,20 @@
 
 
 start_link() ->
-    gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 search(Terms, Types) ->
-    Results = gen_fsm:sync_send_event(?CLIENT, {?CLIENT, {search, Types}, Terms}),
+    Results = gen_statem:call(?CLIENT, {?CLIENT, {search, Types}, Terms}),
     io:format("~ts", [Results]),
     erlang:halt().
 
 get(Terms, Type) ->
-    gen_fsm:sync_send_event(?CLIENT, {?CLIENT, {get, Type}, Terms}),
-    gen_fsm:send_all_state_event(?CLIENT, stop).
+    gen_statem:call(?CLIENT, {?CLIENT, {get, Type}, Terms}),
+    gen_statem:cast(?CLIENT, stop).
 
 install(Terms, Type) ->
     gen_fsm:sync_send_event(?CLIENT, {?CLIENT, {install, Type}, Terms}),
-    gen_fsm:send_all_state_event(?CLIENT, stop).
+    gen_fsm:cast(?CLIENT, stop).
 
 
 %%===================================================================================================
@@ -54,51 +35,51 @@ install(Terms, Type) ->
 
 
 init(Args) ->
-    {ok, idle, Args}.
+    {state_functions, idle, Args}.
 
-idle({?CLIENT, {search, Types}, Terms}, From, []) ->
+idle({call, From}, {?CLIENT, {search, Types}, Terms}, []) ->
     notify_server({?CLIENT, {search, Types}, Terms}),
     spawn_link(fun() -> ?PROCESS:search(Types) end),
     {next_state, wait, From};
 
-idle({?CLIENT, {get, Type}, Terms}, From, []) ->
+idle({call, From}, {?CLIENT, {get, Type}, Terms}, []) ->
     notify_server({?CLIENT, {get, Type}, Terms}),
     spawn_link(fun() -> ?PROCESS:get(Type) end),
     {next_state, wait, From};
 
-idle({?CLIENT, {install, Type}, Terms}, From, []) ->
+idle({call, From}, {?CLIENT, {install, Type}, Terms}, []) ->
     notify_server({?CLIENT, {install, Type}, Terms}),
     spawn_link(fun() -> ?PROCESS:install(Type) end),
     {next_state, wait, From}.
 
-wait({?PROCESS, {search, Types}, ready}, _ServerID, ClientID) ->
-    {reply, {?CLIENT, {search, Types}, ready}, send, ClientID};
+wait({call, ServerID}, {?PROCESS, {search, Types}, ready}, ClientID) ->
+    {next_state, send, ClientID, {reply, ServerID, {?CLIENT, {search, Types}, ready}}};
 
-wait({?PROCESS, {get, Type}, ready}, _ServerID, ClientID) ->
-    {reply, {?CLIENT, {get, Type}, ready}, send, ClientID};
+wait({call, ServerID}, {?PROCESS, {get, Type}, ready}, ClientID) ->
+    {next_state, send, ClientID, {reply, ServerID, {?CLIENT, {get, Type}, ready}}};
 
-wait({?PROCESS, {install, Type}, ready}, send, ClientID) ->
-    {reply, {?CLIENT, {get, Type}, ready}, send, ClientID}.
+wait({call, ServerID}, {?PROCESS, {install, Type}, ready}, ClientID) ->
+    {next_state, send, ClientID, {reply, ServerID, {?CLIENT, {get, Type}, ready}}}.
 
-send({?PROCESS, deliver, Results}, From) ->
-    gen_fsm:reply(From, Results),
+send(cast, {?PROCESS, deliver, Results}, From) ->
+    gen_statem:reply(From, Results),
     {next_state, idle, []};
 
-send({?PROCESS, get, ok}, From) ->
-    gen_fsm:reply(From, ok),
+send(cast, {?PROCESS, get, ok}, From) ->
+    gen_statem:reply(From, ok),
     {next_state, idle, []};
 
-send({?PROCESS, get, fail}, From) ->
+send(cast, {?PROCESS, get, fail}, From) ->
     % Download errors should be handled in this section
-    gen_fsm:reply(From, error),
+    gen_statem:reply(From, error),
     {next_state, idle, []};
 
-send({?PROCESS, install, ok}, From) ->
-    gen_fsm:reply(From, ok),
+send(cast, {?PROCESS, install, ok}, From) ->
+    gen_statem:reply(From, ok),
     {next_state, idle, []};
 
-send({?PROCESS, install, fail}, From) ->
-    gen_fsm:reply(From, error),
+send(cast, {?PROCESS, install, fail}, From) ->
+    gen_statem:reply(From, error),
     {next_state, idle, []}.
 
 handle_event(stop, _StateName, _StateData) ->
@@ -125,7 +106,7 @@ terminate(_Reason, _StateName, _StateData) -> ok.
 
 
 sync_notify_server(Status) ->
-    gen_fsm:sync_send_event(?PROCESS, Status).
+    gen_statem:call(?PROCESS, Status).
 
 notify_server(Status) ->
-    gen_fsm:send_event(?PROCESS, Status).
+    gen_statem:cast(?PROCESS, Status).
